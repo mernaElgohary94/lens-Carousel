@@ -55,6 +55,7 @@ export default function App() {
   const kitRef = useRef<CameraKit | null>(null);
   const sessionRef = useRef<CameraKitSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const sourceRef = useRef<{ setTransform: (transform: Transform2D) => void } | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordFrameRef = useRef<number | null>(null);
@@ -63,11 +64,14 @@ export default function App() {
   const lensScrollTimerRef = useRef<number | null>(null);
   const selectedLensRef = useRef('');
   const lensApplyRequestRef = useRef(0);
+  const lensRailTouchedRef = useRef(false);
+  const mirrorSelfieRef = useRef(false);
   const startedRef = useRef(false);
 
   const [lenses, setLenses] = useState<Lens[]>([]);
   const [selectedLens, setSelectedLens] = useState('');
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
+  const [mirrorSelfie, setMirrorSelfie] = useState(false);
   const [mode, setMode] = useState<CaptureMode>('photo');
   const [recording, setRecording] = useState(false);
   const [capture, setCapture] = useState<Capture>(null);
@@ -86,7 +90,8 @@ export default function App() {
     const source = createMediaStreamSource(stream, { cameraType: nextFacing });
     // A front-facing camera should behave like a familiar selfie view.
     // Transform only the camera input; Lens UI remains correctly oriented.
-    source.setTransform(nextFacing === 'user' ? Transform2D.MirrorX : Transform2D.Identity);
+    source.setTransform(nextFacing === 'user' && mirrorSelfieRef.current ? Transform2D.MirrorX : Transform2D.Identity);
+    sourceRef.current = source;
     await session.setSource(source);
     await session.play();
     setFacing(nextFacing);
@@ -146,7 +151,7 @@ export default function App() {
   const selectLensAtCenter = () => {
     const strip = lensStripRef.current;
     const carousel = lensCarouselRef.current;
-    if (!strip || !carousel || recording) return;
+    if (!strip || !carousel || recording || !lensRailTouchedRef.current) return;
     const visibleArea = carousel.getBoundingClientRect();
     const railCenter = visibleArea.left + visibleArea.width / 2;
     const buttons = [...strip.querySelectorAll<HTMLButtonElement>('[data-lens-id]')];
@@ -222,6 +227,13 @@ export default function App() {
 
   const releaseShutter = () => mode === 'photo' ? takePhoto() : toggleRecording();
   const activeLens = lenses.find((lens) => lens.id === selectedLens);
+  const toggleSelfieMirror = () => {
+    if (facing !== 'user') return;
+    const next = !mirrorSelfieRef.current;
+    mirrorSelfieRef.current = next;
+    setMirrorSelfie(next);
+    sourceRef.current?.setTransform(next ? Transform2D.MirrorX : Transform2D.Identity);
+  };
   const saveCapture = async () => {
     if (!capture) return;
     const file = new File([capture.blob], `snap-lens-${stamp()}.${capture.extension}`, { type: capture.blob.type });
@@ -241,6 +253,7 @@ export default function App() {
       <canvas ref={canvasRef} className="camera-preview" />
       <header className="camera-header">
         <div className="header-actions">
+          {facing === 'user' && <button className={`header-button mirror-button ${mirrorSelfie ? 'active' : ''}`} onClick={toggleSelfieMirror} aria-label={mirrorSelfie ? 'Disable selfie mirroring' : 'Enable selfie mirroring'}>↔</button>}
           <button className="header-button" onClick={() => void setCamera(facing === 'user' ? 'environment' : 'user')} disabled={recording || !sessionRef.current} aria-label="Switch front and back camera">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7V4l-3 3 3 3V7h7a5 5 0 0 1 5 5M17 17v3l3-3-3-3v3h-7a5 5 0 0 1-5-5" /></svg>
           </button>
@@ -250,7 +263,7 @@ export default function App() {
       {recording && <div className="recording-pill"><span /> REC</div>}
       {error && <div className="camera-error"><p>{error}</p><button onClick={() => setError('')}>Dismiss</button></div>}
 
-      <section className="lens-carousel" ref={lensCarouselRef} aria-label="Available Lenses" onScroll={selectLensAtCenter}>
+      <section className="lens-carousel" ref={lensCarouselRef} aria-label="Available Lenses" onPointerDown={() => { lensRailTouchedRef.current = true; }} onScroll={selectLensAtCenter}>
         <div className="lens-track" ref={lensStripRef}>
           {lenses.map((lens) => (
             <button key={lens.id} data-lens-id={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>

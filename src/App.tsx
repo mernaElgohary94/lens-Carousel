@@ -11,13 +11,39 @@ import {
 const API_TOKEN = import.meta.env.VITE_SNAP_CAMERA_KIT_API_TOKEN as string | undefined;
 const LENS_GROUP_ID = import.meta.env.VITE_SNAP_LENS_GROUP_ID as string | undefined;
 
-type Capture = { url: string; type: 'photo' | 'video' } | null;
+type Capture = {
+  url: string;
+  blob: Blob;
+  type: 'photo' | 'video';
+  extension: 'jpg' | 'mp4' | 'webm';
+} | null;
+type CaptureMode = 'photo' | 'video';
 
-function fileStamp() {
-  return new Date().toISOString().replace(/[:.]/g, '-');
+const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
+
+function drawPortrait(source: HTMLCanvasElement, output: HTMLCanvasElement) {
+  const context = output.getContext('2d');
+  if (!context) throw new Error('Could not prepare a capture canvas.');
+  const sourceWidth = source.width || source.clientWidth;
+  const sourceHeight = source.height || source.clientHeight;
+  const targetAspect = output.width / output.height;
+  const sourceAspect = sourceWidth / sourceHeight;
+  const cropWidth = sourceAspect > targetAspect ? sourceHeight * targetAspect : sourceWidth;
+  const cropHeight = sourceAspect > targetAspect ? sourceHeight : sourceWidth / targetAspect;
+  const cropX = (sourceWidth - cropWidth) / 2;
+  const cropY = (sourceHeight - cropHeight) / 2;
+  context.drawImage(source, cropX, cropY, cropWidth, cropHeight, 0, 0, output.width, output.height);
 }
 
-function triggerDownload(url: string, filename: string) {
+function portraitCanvas(source: HTMLCanvasElement) {
+  const output = document.createElement('canvas');
+  output.width = 720;
+  output.height = 1280;
+  drawPortrait(source, output);
+  return output;
+}
+
+function download(url: string, filename: string) {
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
@@ -31,21 +57,20 @@ export default function App() {
   const streamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const recordFrameRef = useRef<number | null>(null);
   const startedRef = useRef(false);
 
   const [lenses, setLenses] = useState<Lens[]>([]);
   const [selectedLens, setSelectedLens] = useState('');
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
-  const [status, setStatus] = useState('Preparing Camera Kit…');
-  const [error, setError] = useState('');
+  const [mode, setMode] = useState<CaptureMode>('photo');
   const [recording, setRecording] = useState(false);
   const [capture, setCapture] = useState<Capture>(null);
+  const [error, setError] = useState('');
 
   const setCamera = useCallback(async (nextFacing: 'user' | 'environment') => {
     const session = sessionRef.current;
     if (!session) return;
-
-    setStatus(`Opening ${nextFacing === 'user' ? 'front' : 'back'} camera…`);
     streamRef.current?.getTracks().forEach((track) => track.stop());
     await session.pause();
     const stream = await navigator.mediaDevices.getUserMedia({
@@ -53,25 +78,20 @@ export default function App() {
       audio: false,
     });
     streamRef.current = stream;
-    const source = createMediaStreamSource(stream, {
-      cameraType: nextFacing,
-    });
+    const source = createMediaStreamSource(stream, { cameraType: nextFacing });
     if (nextFacing === 'user') source.setTransform(Transform2D.MirrorX);
     await session.setSource(source);
     await session.play();
     setFacing(nextFacing);
-    setStatus('Ready');
   }, []);
 
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
     let disposed = false;
-
     async function start() {
       if (!API_TOKEN || !LENS_GROUP_ID) {
-        setError('Add your Camera Kit API token and Lens Group ID to a .env file, then restart the app.');
-        setStatus('Configuration required');
+        setError('Add your Camera Kit API token and Lens Group ID to .env, then restart the app.');
         return;
       }
       if (!canvasRef.current) return;
@@ -90,13 +110,10 @@ export default function App() {
         await session.applyLens(result.lenses[0]);
         await setCamera('user');
       } catch (reason) {
-        const message = reason instanceof Error ? reason.message : 'Unable to start Camera Kit.';
-        setError(message);
-        setStatus('Camera unavailable');
+        setError(reason instanceof Error ? reason.message : 'Unable to open the camera.');
       }
     }
     void start();
-
     return () => {
       disposed = true;
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -105,14 +122,11 @@ export default function App() {
     };
   }, [setCamera]);
 
-  const applyLens = async (lensId: string) => {
-    const lens = lenses.find((item) => item.id === lensId);
-    if (!lens || !sessionRef.current) return;
+  const applyLens = async (lens: Lens) => {
+    if (!sessionRef.current || recording || lens.id === selectedLens) return;
     try {
-      setStatus('Applying Lens…');
       await sessionRef.current.applyLens(lens);
-      setSelectedLens(lensId);
-      setStatus('Ready');
+      setSelectedLens(lens.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not apply that Lens.');
     }
@@ -121,12 +135,12 @@ export default function App() {
   const takePhoto = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.toBlob((blob) => {
+    portraitCanvas(canvas).toBlob((blob) => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
       setCapture((previous) => {
         if (previous) URL.revokeObjectURL(previous.url);
-        return { url, type: 'photo' };
+        return { url, blob, type: 'photo', extension: 'jpg' };
       });
     }, 'image/jpeg', 0.95);
   };
@@ -141,63 +155,94 @@ export default function App() {
       setError('Video recording is not supported in this browser.');
       return;
     }
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-      ? 'video/webm;codecs=vp9'
-      : 'video/webm';
+    const mimeType = [
+      'video/mp4;codecs=avc1.42E01E',
+      'video/mp4',
+      'video/webm;codecs=vp8',
+      'video/webm',
+    ].find((type) => MediaRecorder.isTypeSupported(type));
+    if (!mimeType) {
+      setError('This browser does not support recording video.');
+      return;
+    }
     chunksRef.current = [];
-    const recorder = new MediaRecorder(canvas.captureStream(30), { mimeType });
+    const recordingCanvas = portraitCanvas(canvas);
+    const paintFrame = () => {
+      drawPortrait(canvas, recordingCanvas);
+      recordFrameRef.current = requestAnimationFrame(paintFrame);
+    };
+    paintFrame();
+    const recorder = new MediaRecorder(recordingCanvas.captureStream(30), { mimeType });
     recorderRef.current = recorder;
     recorder.ondataavailable = (event) => event.data.size && chunksRef.current.push(event.data);
     recorder.onstop = () => {
-      const url = URL.createObjectURL(new Blob(chunksRef.current, { type: mimeType }));
+      if (recordFrameRef.current) cancelAnimationFrame(recordFrameRef.current);
+      recordFrameRef.current = null;
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || mimeType });
+      const url = URL.createObjectURL(blob);
       setCapture((previous) => {
         if (previous) URL.revokeObjectURL(previous.url);
-        return { url, type: 'video' };
+        return { url, blob, type: 'video', extension: (recorder.mimeType || mimeType).includes('mp4') ? 'mp4' : 'webm' };
       });
       setRecording(false);
-      setStatus('Video ready to save');
     };
     recorder.start(250);
     setRecording(true);
-    setStatus('Recording…');
   };
 
-  const downloadCapture = () => {
+  const releaseShutter = () => mode === 'photo' ? takePhoto() : toggleRecording();
+  const saveCapture = async () => {
     if (!capture) return;
-    triggerDownload(capture.url, `snap-lens-${fileStamp()}.${capture.type === 'photo' ? 'jpg' : 'webm'}`);
+    const file = new File([capture.blob], `snap-lens-${stamp()}.${capture.extension}`, { type: capture.blob.type });
+    if (navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'Snap Lens capture' });
+        return;
+      } catch (reason) {
+        if (reason instanceof DOMException && reason.name === 'AbortError') return;
+      }
+    }
+    download(capture.url, file.name);
   };
 
   return (
-    <main className="app-shell">
-      <section className="camera-card" aria-label="Snap Lens camera">
-        <canvas ref={canvasRef} className="camera-preview" />
-        <div className="topbar">
-          <span className="brand">SNAP <i>LENS</i></span>
-          <button className="icon-button" onClick={() => void setCamera(facing === 'user' ? 'environment' : 'user')} disabled={recording || !sessionRef.current} aria-label="Switch camera">↻</button>
+    <main className="camera-app">
+      <canvas ref={canvasRef} className="camera-preview" />
+      <header className="camera-header">
+        <div className="header-actions">
+          <button className="header-button" onClick={() => void setCamera(facing === 'user' ? 'environment' : 'user')} disabled={recording || !sessionRef.current} aria-label="Switch front and back camera">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h9.5L14 4.5M17 17H7.5L10 19.5M18.5 8.5A7 7 0 0 0 7 5.8M5.5 15.5A7 7 0 0 0 17 18.2" /></svg>
+          </button>
         </div>
-        <div className="status" role="status">{status}</div>
-        {error && <p className="error">{error}</p>}
-        <div className="controls">
-          <label className="lens-picker">
-            <span>Lens</span>
-            <select value={selectedLens} onChange={(event) => void applyLens(event.target.value)} disabled={!lenses.length || recording}>
-              {lenses.map((lens) => <option key={lens.id} value={lens.id}>{lens.name}</option>)}
-            </select>
-          </label>
-          <div className="shutter-row">
-            <button className="mode-button" onClick={toggleRecording} disabled={!sessionRef.current} aria-pressed={recording}>{recording ? 'Stop' : 'Video'}</button>
-            <button className={`shutter ${recording ? 'is-recording' : ''}`} onClick={recording ? toggleRecording : takePhoto} disabled={!sessionRef.current} aria-label={recording ? 'Stop recording' : 'Take photo'}><span /></button>
-            <button className="mode-button" onClick={downloadCapture} disabled={!capture}>Save</button>
-          </div>
+      </header>
+
+      {recording && <div className="recording-pill"><span /> REC</div>}
+      {error && <div className="camera-error"><p>{error}</p><button onClick={() => setError('')}>Dismiss</button></div>}
+
+      <section className="lens-carousel" aria-label="Available Lenses">
+        <div className="lens-track">
+          {lenses.map((lens) => (
+            <button key={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>
+              {lens.iconUrl || lens.preview?.imageUrl ? <img src={lens.iconUrl ?? lens.preview?.imageUrl} alt="" /> : <span className="lens-fallback">✦</span>}
+              <span>{lens.name}</span>
+            </button>
+          ))}
         </div>
       </section>
 
-      {capture && <section className="result-card" aria-live="polite">
-        {capture.type === 'photo' ? <img src={capture.url} alt="Captured Lens photo" /> : <video src={capture.url} controls playsInline />}
-        <div><strong>{capture.type === 'photo' ? 'Photo captured' : 'Video captured'}</strong><button onClick={downloadCapture}>Download to device</button></div>
-      </section>}
+      <footer className="camera-footer">
+        <div className="mode-switch" role="tablist" aria-label="Capture mode">
+          <button className={mode === 'photo' ? 'active' : ''} onClick={() => !recording && setMode('photo')} role="tab" aria-selected={mode === 'photo'}>PHOTO</button>
+          <button className={mode === 'video' ? 'active' : ''} onClick={() => !recording && setMode('video')} role="tab" aria-selected={mode === 'video'}>VIDEO</button>
+        </div>
+        <button className={`shutter ${mode === 'video' ? 'video-mode' : ''} ${recording ? 'is-recording' : ''}`} onClick={releaseShutter} disabled={!sessionRef.current} aria-label={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'}><span /></button>
+      </footer>
 
-      <p className="hint">For mobile camera access, use HTTPS (or localhost during development). Downloads are saved by your mobile browser; choose “Save to Photos/Gallery” if it prompts you.</p>
+      {capture && <aside className="capture-sheet" aria-label="Latest capture">
+        <button className="sheet-close" onClick={() => setCapture(null)} aria-label="Close capture">×</button>
+        {capture.type === 'photo' ? <img src={capture.url} alt="Captured Lens photo" /> : <video src={capture.url} controls autoPlay playsInline preload="auto" />}
+        <button className="download-button" onClick={() => void saveCapture()}>Save to Gallery</button>
+      </aside>}
     </main>
   );
 }

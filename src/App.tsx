@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   bootstrapCameraKit,
   createMediaStreamSource,
+  Transform2D,
   type CameraKit,
   type CameraKitSession,
   type Lens,
@@ -79,6 +80,8 @@ export default function App() {
     });
     streamRef.current = stream;
     const source = createMediaStreamSource(stream, { cameraType: nextFacing });
+    // Keep the front camera true-to-life rather than mirror-flipped.
+    source.setTransform(Transform2D.Identity);
     await session.setSource(source);
     await session.play();
     setFacing(nextFacing);
@@ -195,6 +198,7 @@ export default function App() {
   };
 
   const releaseShutter = () => mode === 'photo' ? takePhoto() : toggleRecording();
+  const activeLens = lenses.find((lens) => lens.id === selectedLens);
   const saveCapture = async () => {
     if (!capture) return;
     const file = new File([capture.blob], `snap-lens-${stamp()}.${capture.extension}`, { type: capture.blob.type });
@@ -231,6 +235,9 @@ export default function App() {
             </button>
           ))}
         </div>
+        <button className={`lens-capture ${mode === 'video' ? 'video-mode' : ''} ${recording ? 'is-recording' : ''}`} onClick={releaseShutter} disabled={!sessionRef.current} aria-label={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'}>
+          {recording ? <span className="stop-recording" /> : activeLens?.iconUrl || activeLens?.preview?.imageUrl ? <img src={activeLens.iconUrl ?? activeLens.preview?.imageUrl} alt="" /> : <span>✦</span>}
+        </button>
       </section>
 
       <footer className="camera-footer">
@@ -238,7 +245,6 @@ export default function App() {
           <button className={mode === 'photo' ? 'active' : ''} onClick={() => !recording && setMode('photo')} role="tab" aria-selected={mode === 'photo'}>PHOTO</button>
           <button className={mode === 'video' ? 'active' : ''} onClick={() => !recording && setMode('video')} role="tab" aria-selected={mode === 'video'}>VIDEO</button>
         </div>
-        <button className={`shutter ${mode === 'video' ? 'video-mode' : ''} ${recording ? 'is-recording' : ''}`} onClick={releaseShutter} disabled={!sessionRef.current} aria-label={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'}><span /></button>
       </footer>
 
       {capture && <aside className="capture-sheet" aria-label="Latest capture">

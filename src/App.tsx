@@ -59,7 +59,10 @@ export default function App() {
   const chunksRef = useRef<Blob[]>([]);
   const recordFrameRef = useRef<number | null>(null);
   const lensStripRef = useRef<HTMLDivElement>(null);
+  const lensCarouselRef = useRef<HTMLElement>(null);
   const lensScrollTimerRef = useRef<number | null>(null);
+  const selectedLensRef = useRef('');
+  const lensApplyRequestRef = useRef(0);
   const startedRef = useRef(false);
 
   const [lenses, setLenses] = useState<Lens[]>([]);
@@ -82,6 +85,7 @@ export default function App() {
     streamRef.current = stream;
     const source = createMediaStreamSource(stream, { cameraType: nextFacing });
     // A front-facing camera should behave like a familiar selfie view.
+    // Transform only the camera input; Lens UI remains correctly oriented.
     source.setTransform(nextFacing === 'user' ? Transform2D.MirrorX : Transform2D.Identity);
     await session.setSource(source);
     await session.play();
@@ -110,6 +114,7 @@ export default function App() {
         if (disposed) return;
         setLenses(result.lenses);
         setSelectedLens(result.lenses[0].id);
+        selectedLensRef.current = result.lenses[0].id;
         await session.applyLens(result.lenses[0]);
         await setCamera('user');
       } catch (reason) {
@@ -127,9 +132,12 @@ export default function App() {
 
   const applyLens = async (lens: Lens) => {
     if (!sessionRef.current || recording) return;
+    const requestId = ++lensApplyRequestRef.current;
     try {
       await sessionRef.current.applyLens(lens);
+      if (requestId !== lensApplyRequestRef.current) return;
       setSelectedLens(lens.id);
+      selectedLensRef.current = lens.id;
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not apply that Lens.');
     }
@@ -137,8 +145,10 @@ export default function App() {
 
   const selectLensAtCenter = () => {
     const strip = lensStripRef.current;
-    if (!strip || recording) return;
-    const railCenter = strip.getBoundingClientRect().left + strip.clientWidth / 2;
+    const carousel = lensCarouselRef.current;
+    if (!strip || !carousel || recording) return;
+    const visibleArea = carousel.getBoundingClientRect();
+    const railCenter = visibleArea.left + visibleArea.width / 2;
     const buttons = [...strip.querySelectorAll<HTMLButtonElement>('[data-lens-id]')];
     const closest = buttons.reduce<HTMLButtonElement | null>((best, button) => {
       if (!best) return button;
@@ -147,10 +157,9 @@ export default function App() {
       return distance < bestDistance ? button : best;
     }, null);
     const lens = lenses.find((item) => item.id === closest?.dataset.lensId);
-    if (!lens || lens.id === selectedLens) return;
-    setSelectedLens(lens.id);
     if (lensScrollTimerRef.current) window.clearTimeout(lensScrollTimerRef.current);
-    lensScrollTimerRef.current = window.setTimeout(() => void applyLens(lens), 90);
+    if (!lens || lens.id === selectedLensRef.current) return;
+    lensScrollTimerRef.current = window.setTimeout(() => void applyLens(lens), 180);
   };
 
   const takePhoto = () => {
@@ -241,10 +250,10 @@ export default function App() {
       {recording && <div className="recording-pill"><span /> REC</div>}
       {error && <div className="camera-error"><p>{error}</p><button onClick={() => setError('')}>Dismiss</button></div>}
 
-      <section className="lens-carousel" aria-label="Available Lenses" onScroll={selectLensAtCenter}>
+      <section className="lens-carousel" ref={lensCarouselRef} aria-label="Available Lenses" onScroll={selectLensAtCenter}>
         <div className="lens-track" ref={lensStripRef}>
           {lenses.map((lens) => (
-            <button key={lens.id} data-lens-id={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); setSelectedLens(lens.id); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>
+            <button key={lens.id} data-lens-id={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>
               {lens.iconUrl || lens.preview?.imageUrl ? <img src={lens.iconUrl ?? lens.preview?.imageUrl} alt="" /> : <span className="lens-fallback">✦</span>}
             </button>
           ))}

@@ -64,7 +64,6 @@ export default function App() {
   const selectedLensRef = useRef('');
   const lensApplyRequestRef = useRef(0);
   const lensRailTouchedRef = useRef(false);
-  const mirrorSelfieRef = useRef(true);
   const startedRef = useRef(false);
 
   const [lenses, setLenses] = useState<Lens[]>([]);
@@ -75,6 +74,7 @@ export default function App() {
   const [capture, setCapture] = useState<Capture>(null);
   const [error, setError] = useState('');
 
+  
   const setCamera = useCallback(async (nextFacing: 'user' | 'environment') => {
     const session = sessionRef.current;
     if (!session) return;
@@ -86,10 +86,11 @@ export default function App() {
     });
     streamRef.current = stream;
     const source = createMediaStreamSource(stream, { cameraType: nextFacing });
-    // A front-facing camera should behave like a familiar selfie view.
-    // Transform only the camera input; Lens UI remains correctly oriented.
-    source.setTransform(nextFacing === 'user' && mirrorSelfieRef.current ? Transform2D.MirrorX : Transform2D.Identity);
+    // Mirror only the front-camera input; Lens UI remains correctly oriented.
+    const transform = nextFacing === 'user' ? Transform2D.MirrorX : Transform2D.Identity;
+    source.setTransform(transform);
     await session.setSource(source);
+    source.setTransform(transform);
     await session.play();
     setFacing(nextFacing);
   }, []);
@@ -143,6 +144,7 @@ export default function App() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not apply that Lens.');
     }
+     
   };
 
   const selectLensAtCenter = () => {

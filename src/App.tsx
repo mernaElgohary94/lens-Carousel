@@ -59,6 +59,7 @@ export default function App() {
   const chunksRef = useRef<Blob[]>([]);
   const recordFrameRef = useRef<number | null>(null);
   const lensStripRef = useRef<HTMLDivElement>(null);
+  const lensScrollTimerRef = useRef<number | null>(null);
   const startedRef = useRef(false);
 
   const [lenses, setLenses] = useState<Lens[]>([]);
@@ -80,8 +81,8 @@ export default function App() {
     });
     streamRef.current = stream;
     const source = createMediaStreamSource(stream, { cameraType: nextFacing });
-    // Keep the front camera true-to-life rather than mirror-flipped.
-    source.setTransform(Transform2D.Identity);
+    // A front-facing camera should behave like a familiar selfie view.
+    source.setTransform(nextFacing === 'user' ? Transform2D.MirrorX : Transform2D.Identity);
     await session.setSource(source);
     await session.play();
     setFacing(nextFacing);
@@ -124,19 +125,32 @@ export default function App() {
     };
   }, [setCamera]);
 
-  useEffect(() => {
-    const selected = lensStripRef.current?.querySelector<HTMLButtonElement>('.selected');
-    selected?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-  }, [selectedLens]);
-
   const applyLens = async (lens: Lens) => {
-    if (!sessionRef.current || recording || lens.id === selectedLens) return;
+    if (!sessionRef.current || recording) return;
     try {
       await sessionRef.current.applyLens(lens);
       setSelectedLens(lens.id);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not apply that Lens.');
     }
+  };
+
+  const selectLensAtCenter = () => {
+    const strip = lensStripRef.current;
+    if (!strip || recording) return;
+    const railCenter = strip.getBoundingClientRect().left + strip.clientWidth / 2;
+    const buttons = [...strip.querySelectorAll<HTMLButtonElement>('[data-lens-id]')];
+    const closest = buttons.reduce<HTMLButtonElement | null>((best, button) => {
+      if (!best) return button;
+      const distance = Math.abs(button.getBoundingClientRect().left + button.offsetWidth / 2 - railCenter);
+      const bestDistance = Math.abs(best.getBoundingClientRect().left + best.offsetWidth / 2 - railCenter);
+      return distance < bestDistance ? button : best;
+    }, null);
+    const lens = lenses.find((item) => item.id === closest?.dataset.lensId);
+    if (!lens || lens.id === selectedLens) return;
+    setSelectedLens(lens.id);
+    if (lensScrollTimerRef.current) window.clearTimeout(lensScrollTimerRef.current);
+    lensScrollTimerRef.current = window.setTimeout(() => void applyLens(lens), 90);
   };
 
   const takePhoto = () => {
@@ -227,10 +241,10 @@ export default function App() {
       {recording && <div className="recording-pill"><span /> REC</div>}
       {error && <div className="camera-error"><p>{error}</p><button onClick={() => setError('')}>Dismiss</button></div>}
 
-      <section className="lens-carousel" aria-label="Available Lenses">
+      <section className="lens-carousel" aria-label="Available Lenses" onScroll={selectLensAtCenter}>
         <div className="lens-track" ref={lensStripRef}>
           {lenses.map((lens) => (
-            <button key={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>
+            <button key={lens.id} data-lens-id={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); setSelectedLens(lens.id); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>
               {lens.iconUrl || lens.preview?.imageUrl ? <img src={lens.iconUrl ?? lens.preview?.imageUrl} alt="" /> : <span className="lens-fallback">✦</span>}
             </button>
           ))}

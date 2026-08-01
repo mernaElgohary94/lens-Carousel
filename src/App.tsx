@@ -55,7 +55,6 @@ export default function App() {
   const kitRef = useRef<CameraKit | null>(null);
   const sessionRef = useRef<CameraKitSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const sourceRef = useRef<{ setTransform: (transform: Transform2D) => void } | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordFrameRef = useRef<number | null>(null);
@@ -65,13 +64,12 @@ export default function App() {
   const selectedLensRef = useRef('');
   const lensApplyRequestRef = useRef(0);
   const lensRailTouchedRef = useRef(false);
-  const mirrorSelfieRef = useRef(false);
+  const mirrorSelfieRef = useRef(true);
   const startedRef = useRef(false);
 
   const [lenses, setLenses] = useState<Lens[]>([]);
   const [selectedLens, setSelectedLens] = useState('');
   const [facing, setFacing] = useState<'user' | 'environment'>('user');
-  const [mirrorSelfie, setMirrorSelfie] = useState(false);
   const [mode, setMode] = useState<CaptureMode>('photo');
   const [recording, setRecording] = useState(false);
   const [capture, setCapture] = useState<Capture>(null);
@@ -91,7 +89,6 @@ export default function App() {
     // A front-facing camera should behave like a familiar selfie view.
     // Transform only the camera input; Lens UI remains correctly oriented.
     source.setTransform(nextFacing === 'user' && mirrorSelfieRef.current ? Transform2D.MirrorX : Transform2D.Identity);
-    sourceRef.current = source;
     await session.setSource(source);
     await session.play();
     setFacing(nextFacing);
@@ -227,13 +224,6 @@ export default function App() {
 
   const releaseShutter = () => mode === 'photo' ? takePhoto() : toggleRecording();
   const activeLens = lenses.find((lens) => lens.id === selectedLens);
-  const toggleSelfieMirror = () => {
-    if (facing !== 'user') return;
-    const next = !mirrorSelfieRef.current;
-    mirrorSelfieRef.current = next;
-    setMirrorSelfie(next);
-    sourceRef.current?.setTransform(next ? Transform2D.MirrorX : Transform2D.Identity);
-  };
   const saveCapture = async () => {
     if (!capture) return;
     const file = new File([capture.blob], `snap-lens-${stamp()}.${capture.extension}`, { type: capture.blob.type });
@@ -253,7 +243,6 @@ export default function App() {
       <canvas ref={canvasRef} className="camera-preview" />
       <header className="camera-header">
         <div className="header-actions">
-          {facing === 'user' && <button className={`header-button mirror-button ${mirrorSelfie ? 'active' : ''}`} onClick={toggleSelfieMirror} aria-label={mirrorSelfie ? 'Disable selfie mirroring' : 'Enable selfie mirroring'}>↔</button>}
           <button className="header-button" onClick={() => void setCamera(facing === 'user' ? 'environment' : 'user')} disabled={recording || !sessionRef.current} aria-label="Switch front and back camera">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7V4l-3 3 3 3V7h7a5 5 0 0 1 5 5M17 17v3l3-3-3-3v3h-7a5 5 0 0 1-5-5" /></svg>
           </button>

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   bootstrapCameraKit,
   createMediaStreamSource,
-  Transform2D,
   type CameraKit,
   type CameraKitSession,
   type Lens,
@@ -58,6 +57,7 @@ export default function App() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordFrameRef = useRef<number | null>(null);
+  const lensStripRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
 
   const [lenses, setLenses] = useState<Lens[]>([]);
@@ -79,7 +79,6 @@ export default function App() {
     });
     streamRef.current = stream;
     const source = createMediaStreamSource(stream, { cameraType: nextFacing });
-    if (nextFacing === 'user') source.setTransform(Transform2D.MirrorX);
     await session.setSource(source);
     await session.play();
     setFacing(nextFacing);
@@ -121,6 +120,11 @@ export default function App() {
       void kitRef.current?.destroy();
     };
   }, [setCamera]);
+
+  useEffect(() => {
+    const selected = lensStripRef.current?.querySelector<HTMLButtonElement>('.selected');
+    selected?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  }, [selectedLens]);
 
   const applyLens = async (lens: Lens) => {
     if (!sessionRef.current || recording || lens.id === selectedLens) return;
@@ -211,7 +215,7 @@ export default function App() {
       <header className="camera-header">
         <div className="header-actions">
           <button className="header-button" onClick={() => void setCamera(facing === 'user' ? 'environment' : 'user')} disabled={recording || !sessionRef.current} aria-label="Switch front and back camera">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h9.5L14 4.5M17 17H7.5L10 19.5M18.5 8.5A7 7 0 0 0 7 5.8M5.5 15.5A7 7 0 0 0 17 18.2" /></svg>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7V4l-3 3 3 3V7h7a5 5 0 0 1 5 5M17 17v3l3-3-3-3v3h-7a5 5 0 0 1-5-5" /></svg>
           </button>
         </div>
       </header>
@@ -220,11 +224,10 @@ export default function App() {
       {error && <div className="camera-error"><p>{error}</p><button onClick={() => setError('')}>Dismiss</button></div>}
 
       <section className="lens-carousel" aria-label="Available Lenses">
-        <div className="lens-track">
+        <div className="lens-track" ref={lensStripRef}>
           {lenses.map((lens) => (
             <button key={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>
               {lens.iconUrl || lens.preview?.imageUrl ? <img src={lens.iconUrl ?? lens.preview?.imageUrl} alt="" /> : <span className="lens-fallback">✦</span>}
-              <span>{lens.name}</span>
             </button>
           ))}
         </div>

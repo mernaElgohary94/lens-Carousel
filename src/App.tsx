@@ -235,10 +235,10 @@ export default function App() {
             </button>
           ))}
         </div>
-        <button className={`lens-capture ${mode === 'video' ? 'video-mode' : ''} ${recording ? 'is-recording' : ''}`} onClick={releaseShutter} disabled={!sessionRef.current} aria-label={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'}>
-          {recording ? <span className="stop-recording" /> : activeLens?.iconUrl || activeLens?.preview?.imageUrl ? <img src={activeLens.iconUrl ?? activeLens.preview?.imageUrl} alt="" /> : <span>✦</span>}
-        </button>
       </section>
+      <button className={`lens-capture ${mode === 'video' ? 'video-mode' : ''} ${recording ? 'is-recording' : ''}`} onClick={releaseShutter} disabled={!sessionRef.current} aria-label={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'}>
+        {recording ? <span className="stop-recording" /> : activeLens?.iconUrl || activeLens?.preview?.imageUrl ? <img src={activeLens.iconUrl ?? activeLens.preview?.imageUrl} alt="" /> : <span>✦</span>}
+      </button>
 
       <footer className="camera-footer">
         <div className="mode-switch" role="tablist" aria-label="Capture mode">

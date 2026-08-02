@@ -74,7 +74,44 @@ export default function App() {
   const [capture, setCapture] = useState<Capture>(null);
   const [error, setError] = useState('');
 
-  
+  const [started, setStarted] = useState(false);
+
+  // iOS Safari requires DeviceMotion/DeviceOrientation permission to be
+  // requested directly inside a user-gesture handler (e.g. a tap), or World
+  // Lenses will never receive real gyroscope/accelerometer data and their
+  // 6-DoF tracking will drift/float even while the phone is held still.
+  // Android grants this automatically, which is why it "just works" there.
+  const requestMotionPermission = async () => {
+    const motionEvent = window.DeviceMotionEvent as unknown as {
+      requestPermission?: () => Promise<'granted' | 'denied'>;
+    };
+    const orientationEvent = window.DeviceOrientationEvent as unknown as {
+      requestPermission?: () => Promise<'granted' | 'denied'>;
+    };
+    try {
+      if (typeof motionEvent?.requestPermission === 'function') {
+        const result = await motionEvent.requestPermission();
+        if (result !== 'granted') return false;
+      }
+      if (typeof orientationEvent?.requestPermission === 'function') {
+        const result = await orientationEvent.requestPermission();
+        if (result !== 'granted') return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const beginExperience = async () => {
+    const granted = await requestMotionPermission();
+    if (!granted) {
+      setError('Motion & Orientation access is required for World Lenses. Please allow it in the prompt and tap Start again.');
+      return;
+    }
+    setStarted(true);
+  };
+
   const setCamera = useCallback(async (nextFacing: 'user' | 'environment') => {
     const session = sessionRef.current;
     if (!session) return;
@@ -96,6 +133,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!started) return;
     if (startedRef.current) return;
     startedRef.current = true;
     let disposed = false;
@@ -131,7 +169,7 @@ export default function App() {
       void sessionRef.current?.destroy();
       void kitRef.current?.destroy();
     };
-  }, [setCamera]);
+  }, [setCamera, started]);
 
   const applyLens = async (lens: Lens) => {
     if (!sessionRef.current || recording) return;
@@ -239,7 +277,17 @@ export default function App() {
     }
     download(capture.url, file.name);
   };
-
+  if (!started) {
+    return (
+      <main className="camera-app">
+        <div className="start-screen">
+          <p>World Lenses need access to your camera and motion sensors.</p>
+          <button className="start-button" onClick={() => void beginExperience()}>Tap to Start</button>
+          {error && <div className="camera-error"><p>{error}</p><button onClick={() => setError('')}>Dismiss</button></div>}
+        </div>
+      </main>
+    );
+  }
   return (
     <main className="camera-app">
       <canvas ref={canvasRef} className="camera-preview" />

@@ -157,7 +157,7 @@ export default function App() {
         setSelectedLens(result.lenses[0].id);
         selectedLensRef.current = result.lenses[0].id;
         await session.applyLens(result.lenses[0]);
-        await setCamera('user');
+        await setCamera('environment');
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : 'Unable to open the camera.');
       }

@@ -59,7 +59,7 @@ export default function App() {
   const chunksRef = useRef<Blob[]>([]);
   const recordFrameRef = useRef<number | null>(null);
   const lensStripRef = useRef<HTMLDivElement>(null);
-  const lensCarouselRef = useRef<HTMLElement>(null);
+  const lensCarouselRef = useRef<HTMLDivElement>(null);
   const lensScrollTimerRef = useRef<number | null>(null);
   const selectedLensRef = useRef('');
   const lensApplyRequestRef = useRef(0);
@@ -73,6 +73,7 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   const [capture, setCapture] = useState<Capture>(null);
   const [error, setError] = useState('');
+  const [isLensLoading, setIsLensLoading] = useState(false);
 
   const [started, setStarted] = useState(false);
 
@@ -138,8 +139,10 @@ export default function App() {
     startedRef.current = true;
     let disposed = false;
     async function start() {
+      setIsLensLoading(true);
       if (!API_TOKEN || !LENS_GROUP_ID) {
         setError('Add your Camera Kit API token and Lens Group ID to .env, then restart the app.');
+        setIsLensLoading(false);
         return;
       }
       if (!canvasRef.current) return;
@@ -156,10 +159,12 @@ export default function App() {
         setLenses(result.lenses);
         setSelectedLens(result.lenses[0].id);
         selectedLensRef.current = result.lenses[0].id;
+        setIsLensLoading(false);
         await session.applyLens(result.lenses[0]);
         await setCamera('environment');
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : 'Unable to open the camera.');
+        setIsLensLoading(false);
       }
     }
     void start();
@@ -170,6 +175,16 @@ export default function App() {
       void kitRef.current?.destroy();
     };
   }, [setCamera, started]);
+
+  useEffect(() => {
+    if (!lenses.length) return;
+    requestAnimationFrame(() => {
+      const carousel = lensCarouselRef.current;
+      const firstLens = lensStripRef.current?.querySelector<HTMLButtonElement>('[data-lens-id]');
+      if (!carousel || !firstLens) return;
+      carousel.scrollLeft = Math.max(0, firstLens.offsetLeft + firstLens.offsetWidth / 2 - carousel.clientWidth / 2);
+    });
+  }, [lenses.length]);
 
   const applyLens = async (lens: Lens) => {
     if (!sessionRef.current || recording) return;
@@ -264,6 +279,14 @@ export default function App() {
 
   const releaseShutter = () => mode === 'photo' ? takePhoto() : toggleRecording();
   const activeLens = lenses.find((lens) => lens.id === selectedLens);
+  const centerLens = (button: HTMLButtonElement) => {
+    const carousel = lensCarouselRef.current;
+    if (!carousel) return;
+    carousel.scrollTo({
+      left: Math.max(0, button.offsetLeft + button.offsetWidth / 2 - carousel.clientWidth / 2),
+      behavior: 'smooth',
+    });
+  };
   const saveCapture = async () => {
     if (!capture) return;
     const file = new File([capture.blob], `snap-lens-${stamp()}.${capture.extension}`, { type: capture.blob.type });
@@ -300,20 +323,23 @@ export default function App() {
       </header>
 
       {recording && <div className="recording-pill"><span /> REC</div>}
+      {isLensLoading && <div className="lens-loading" role="status" aria-label="Loading Lenses"><span /></div>}
       {error && <div className="camera-error"><p>{error}</p><button onClick={() => setError('')}>Dismiss</button></div>}
 
-      <section className="lens-carousel" ref={lensCarouselRef} aria-label="Available Lenses" onPointerDown={() => { lensRailTouchedRef.current = true; }} onScroll={selectLensAtCenter}>
-        <div className="lens-track" ref={lensStripRef}>
+      <section className="lens-carousel" aria-label="Available Lenses">
+        <div className="lens-scroll" ref={lensCarouselRef} onPointerDown={() => { lensRailTouchedRef.current = true; }} onScroll={selectLensAtCenter}>
+          <div className="lens-track" ref={lensStripRef}>
           {lenses.map((lens) => (
-            <button key={lens.id} data-lens-id={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { event.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>
+              <button key={lens.id} data-lens-id={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { centerLens(event.currentTarget); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>
               {lens.iconUrl || lens.preview?.imageUrl ? <img src={lens.iconUrl ?? lens.preview?.imageUrl} alt="" /> : <span className="lens-fallback">✦</span>}
             </button>
           ))}
+          </div>
         </div>
-      </section>
-      <button className={`lens-capture ${mode === 'video' ? 'video-mode' : ''} ${recording ? 'is-recording' : ''}`} onClick={releaseShutter} disabled={!sessionRef.current} aria-label={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'}>
+        <button className={`lens-capture ${mode === 'video' ? 'video-mode' : ''} ${recording ? 'is-recording' : ''}`} onClick={releaseShutter} disabled={!sessionRef.current} aria-label={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'}>
         {recording ? <span className="stop-recording" /> : activeLens?.iconUrl || activeLens?.preview?.imageUrl ? <img src={activeLens.iconUrl ?? activeLens.preview?.imageUrl} alt="" /> : <span>✦</span>}
-      </button>
+        </button>
+      </section>
 
       <footer className="camera-footer">
         <div className="mode-switch" role="tablist" aria-label="Capture mode">

@@ -159,9 +159,9 @@ export default function App() {
         setLenses(result.lenses);
         setSelectedLens(result.lenses[0].id);
         selectedLensRef.current = result.lenses[0].id;
-        setIsLensLoading(false);
         await session.applyLens(result.lenses[0]);
         await setCamera('environment');
+        setIsLensLoading(false);
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : 'Unable to open the camera.');
         setIsLensLoading(false);
@@ -189,12 +189,15 @@ export default function App() {
   const applyLens = async (lens: Lens) => {
     if (!sessionRef.current || recording) return;
     const requestId = ++lensApplyRequestRef.current;
+    setIsLensLoading(true);
     try {
       await sessionRef.current.applyLens(lens);
       if (requestId !== lensApplyRequestRef.current) return;
       setSelectedLens(lens.id);
       selectedLensRef.current = lens.id;
+      setIsLensLoading(false);
     } catch (reason) {
+      if (requestId === lensApplyRequestRef.current) setIsLensLoading(false);
       setError(reason instanceof Error ? reason.message : 'Could not apply that Lens.');
     }
      

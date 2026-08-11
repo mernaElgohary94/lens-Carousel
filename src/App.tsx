@@ -329,11 +329,13 @@ export default function App() {
       <section className="lens-carousel" aria-label="Available Lenses">
         <div className="lens-scroll" ref={lensCarouselRef} onPointerDown={() => { lensRailTouchedRef.current = true; }} onScroll={selectLensAtCenter}>
           <div className="lens-track" ref={lensStripRef}>
-          {lenses.map((lens) => (
+            <span className="lens-spacer" aria-hidden="true" />
+            {lenses.map((lens) => (
               <button key={lens.id} data-lens-id={lens.id} className={`lens-chip ${lens.id === selectedLens ? 'selected' : ''}`} onClick={(event) => { centerLens(event.currentTarget); void applyLens(lens); }} aria-label={`Use ${lens.name}`} aria-pressed={lens.id === selectedLens}>
               {lens.iconUrl || lens.preview?.imageUrl ? <img src={lens.iconUrl ?? lens.preview?.imageUrl} alt="" /> : <span className="lens-fallback">✦</span>}
             </button>
-          ))}
+            ))}
+            <span className="lens-spacer" aria-hidden="true" />
           </div>
         </div>
         <button className={`lens-capture ${mode === 'video' ? 'video-mode' : ''} ${recording ? 'is-recording' : ''}`} onClick={releaseShutter} disabled={!sessionRef.current} aria-label={mode === 'photo' ? 'Take photo' : recording ? 'Stop recording' : 'Start recording'}>

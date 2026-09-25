@@ -9,15 +9,16 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@snap/camera-kit": "^1.13.0",
+    "@snap/camera-kit": "^1.22.0",
+    "@snap/react-camera-kit": "^0.6.0",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
-    "typescript": "latest",
     "@types/react": "latest",
-    "@types/react-dom": "latest"
+    "@types/react-dom": "latest",
+    "typescript": "latest"
   }
 }
